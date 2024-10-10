@@ -1,4 +1,3 @@
-// Compile: clear && clang++ -std=c++20 main.cpp -o memfile
 #include "memfile.hpp"
 #include <iostream>
 #include <cstring>
@@ -14,14 +13,14 @@ int main() {
     MemFile& file1 = MemFile::getFile("example.bin");
     const char* binaryData = "\x01\x02\x03\x04\x05";
     file1.write(binaryData, 5);
-    file1.save();
+    file1.save(".");
 
     // Appending to the same file
     MemFile::selectFile("example.bin", MemFile::Mode::Append);
     MemFile& file2 = MemFile::getFile("example.bin");
     const char* moreData = "\x06\x07\x08\x09\x0A";
     file2.write(moreData, 5);
-    file2.save();
+    file2.save(".");
 
     // Reading from a file
     MemFile::selectFile("example.bin", MemFile::Mode::Read);
@@ -69,7 +68,7 @@ int main() {
     MemFile& fileInDir = MemFile::getFile(filePathInDir);
     const char* dirFileData = "\x0B\x0C\x0D\x0E\x0F";
     fileInDir.write(dirFileData, 5);
-    fileInDir.save();
+    fileInDir.save(".");
 
     // List directory contents again to show the new file
     std::cout << "Contents of the directory (" << dirPath << ") after adding new_file.bin:" << std::endl;
@@ -86,6 +85,38 @@ int main() {
     // Remove the directory
     MemFile::removeDirectory(dirPath);
     std::cout << "Removed directory: " << dirPath << std::endl;
+
+    // Set a custom environment variable for an in-memory path
+    std::cout << "\nEnvironment Variable:" << std::endl;
+    MemFile::setEnv("MY_PATH", "/virtual/files");
+
+    // Create a new MemFile, resolving the environment variable in the path
+    std::string filePath = "${MY_PATH}/example.txt";
+    std::cout << "Selecting file: " << filePath << std::endl;
+    MemFile::selectFile(filePath, MemFile::Mode::Write);
+
+    // Write to the file
+    MemFile& file = MemFile::getFile("/virtual/files/example.txt");
+    const char* data = "Hello, world!";
+    file.write(data, std::strlen(data));
+
+    // Save the file
+    file.save(".");
+    std::cout << "File saved successfully (" << file.getFileSize() << " bytes)!" << std::endl;
+
+    // Remove Memfile
+    MemFile::removeFile("/virtual/files/example.txt");
+    if (file.getPath() == "" && file.getFileSize() == 0) {
+        std::cout << "File removed successfully!" << std::endl;
+    }
+
+    // Load the file
+    file.load("./example.txt","/virtual/files/example.txt");
+
+    // Check file
+    if (file.getPath() != "") {
+        std::cout << "File: " << file.getPath() << " (" << file.getFileSize() << " bytes) Loaded successfully!" << std::endl;
+    }
 
     return 0;
 }
