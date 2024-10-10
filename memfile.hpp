@@ -7,8 +7,9 @@
 #include <fstream>
 #include <map>
 #include <iostream>
-#include <cstdio> // for std::remove
-#include <filesystem> // for directory operations
+#include <filesystem>
+#include <cstdio>
+#include <cstdlib>
 
 namespace memfile {
 
@@ -19,9 +20,9 @@ public:
     // Default constructor
     MemFile() = default;
 
-    MemFile(const std::string& path, Mode mode) : path_(path), mode_(mode) {
+    MemFile(const std::string& path, Mode mode) : path_(resolveEnvVars(path)), mode_(mode) {
         if (mode == Mode::Read || mode == Mode::Append) {
-            std::ifstream file(path, std::ios::binary);
+            std::ifstream file(path_, std::ios::binary);
             if (file.is_open()) {
                 std::stringstream buffer;
                 buffer << file.rdbuf();
@@ -64,10 +65,34 @@ public:
         return position_;
     }
 
-    void save() {
-        std::ofstream file(path_, std::ios::binary);
+    void save(std::string newPath) {
+        std::filesystem::path memFilePath(path_);
+        std::string filename = memFilePath.filename().string();
+        std::string fullPath;
+        if (newPath == ".") {
+            fullPath = newPath + "/" + filename;  // If newPath is ".", add a slash before filename
+        } else if (newPath.back() != '/') {
+            fullPath = newPath + "/" + filename;  // Add a slash if newPath doesn't end with one
+        } else {
+            fullPath = newPath + filename;        // Just concatenate if slash is already present
+        }
+
+        std::ofstream file(fullPath, std::ios::binary);
         if (file.is_open()) {
             file.write(content_.data(), content_.size());
+        }
+    }
+
+    void load(const std::string& fullPath, const std::string& newPath) {
+        std::ifstream file(fullPath, std::ios::binary);
+        if (file.is_open()) {
+            std::stringstream buffer;
+            buffer << file.rdbuf();  // Read the file content into the buffer
+            content_ = buffer.str(); // Store the buffer content into the 'content_' string
+            position_ = 0;           // Reset the position to the start of the file
+            path_=newPath;
+        } else {
+            throw std::runtime_error("Could not open file: " + path_);
         }
     }
 
@@ -86,15 +111,15 @@ public:
     }
 
     static void selectFile(const std::string& path, Mode mode) {
-        files_[path] = MemFile(path, mode);
+        files_[resolveEnvVars(path)] = MemFile(path, mode);
     }
 
     static MemFile& getFile(const std::string& path) {
-        return files_.at(path);
+        return files_.at(resolveEnvVars(path));
     }
 
     static void removeFile(const std::string& path) {
-        auto it = files_.find(path);
+        auto it = files_.find(resolveEnvVars(path));
         if (it != files_.end()) {
             files_.erase(it);
             std::remove(path.c_str()); // Delete the file from the filesystem
@@ -116,15 +141,50 @@ public:
         std::filesystem::remove_all(path);
     }
 
+    // Environment variable handling
+    static void setEnv(const std::string& var, const std::string& value) {
+        env_[var] = value;
+    }
+
+    static std::string getEnv(const std::string& var) {
+        if (env_.find(var) != env_.end()) {
+            return env_.at(var);
+        }
+        // Fallback to system environment variable
+        const char* sysEnv = std::getenv(var.c_str());
+        return sysEnv ? std::string(sysEnv) : "";
+    }
+
+    // Resolves environment variables in file paths (e.g., ${HOME}/file.txt)
+    static std::string resolveEnvVars(const std::string& path) {
+        std::string resolvedPath = path;
+        size_t start = resolvedPath.find("${");
+        while (start != std::string::npos) {
+            size_t end = resolvedPath.find("}", start);
+            if (end != std::string::npos) {
+                std::string varName = resolvedPath.substr(start + 2, end - start - 2);
+                std::string varValue = getEnv(varName);
+                resolvedPath.replace(start, end - start + 1, varValue);
+                start = resolvedPath.find("${", start + varValue.length());
+            } else {
+                break;
+            }
+        }
+        return resolvedPath;
+    }
+
 private:
     std::string path_;
     std::string content_;
     size_t position_ = 0;
     Mode mode_;
     static std::map<std::string, MemFile> files_;
+    static std::map<std::string, std::string> env_;  // Custom environment variables
 };
 
+// Initialize static members
 std::map<std::string, MemFile> MemFile::files_;
+std::map<std::string, std::string> MemFile::env_;
 
 } // namespace memfile
 
